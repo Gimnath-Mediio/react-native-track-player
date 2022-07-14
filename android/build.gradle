@@ -2,93 +2,110 @@ import groovy.json.JsonSlurper
 
 buildscript {
     repositories {
-        mavenCentral()
-        google()
+        jcenter()
     }
     dependencies {
-        classpath 'com.android.tools.build:gradle:3.4.2'
+        classpath 'com.android.tools.build:gradle:1.3.1'
     }
 }
 
 apply plugin: 'com.android.library'
 
-boolean dash = false, hls = false, smoothstreaming = false
+String castAppId = null;
+boolean exoplayer = false, cache = false, auto = false;
+boolean dash = false, hls = false, smoothstreaming = false;
 
 File file = file('../../../track-player.json')
 if(file.exists()) {
     def json = new JsonSlurper().parseText(file.text)
+    cache = json.cache ?: cache
     dash = json.dash ?: dash
     hls = json.hls ?: hls
     smoothstreaming = json.smoothstreaming ?: smoothstreaming
-}
+    castAppId = json.castApplicationId ?: castAppId
+    auto = json.auto ?: auto
 
-def safeExtGet(prop, fallback) {
-    rootProject.ext.has(prop) ? rootProject.ext.get(prop) : fallback
+    exoplayer = json.exoplayer || dash || hls || smoothstreaming
 }
 
 android {
-    compileSdkVersion safeExtGet("compileSdkVersion", 28)
+    compileSdkVersion 23
+    buildToolsVersion "23.0.3"
 
     defaultConfig {
-        minSdkVersion safeExtGet("minSdkVersion", 16) // RN's minimum version
-        targetSdkVersion safeExtGet("targetSdkVersion", 28)
-
+        minSdkVersion 16 // RN's minimum version
+        targetSdkVersion 23
         versionCode 1
         versionName "1.0"
+        ndk {
+            abiFilters "armeabi-v7a", "x86"
+        }
 
         consumerProguardFiles 'proguard-rules.txt'
     }
 
-    compileOptions {
-        sourceCompatibility JavaVersion.VERSION_1_8
-        targetCompatibility JavaVersion.VERSION_1_8
+    buildTypes {
+        buildTypes.each {
+            def appId = castAppId != null ? '"' + castAppId + '"' : 'null';
+            it.buildConfigField 'String', 'CAST_APPLICATION_ID', appId
+
+            def autoMd = auto ? 'com.google.android.gms.car.application' : 'disabled.car.application'
+            it.manifestPlaceholders = [autoMetadata: autoMd]
+        }
     }
 }
 
 repositories {
     maven {
         // As RN is not updated in jcenter anymore, we'll have to grab it from npm
-        // Make sure you have installed the react-native npm package before compiling
         url "../node_modules/react-native/android"
     }
-
     mavenCentral()
-    google()
+    jcenter()
 }
 
 dependencies {
     //noinspection GradleDynamicVersion
-    implementation 'com.facebook.react:react-native:+'
-
-    def exoPlayerVersion = safeExtGet("exoPlayerVersion", '2.11.4')
+    compile 'com.facebook.react:react-native:+'
 
     // ExoPlayer Core
-    implementation "com.google.android.exoplayer:exoplayer-core:${exoPlayerVersion}"
+    if(exoplayer) {
+        compile 'com.google.android.exoplayer:exoplayer-core:r2.4.3'
+    } else {
+        provided 'com.google.android.exoplayer:exoplayer-core:r2.4.3'
+    }
 
     // ExoPlayer DASH
-    if (dash) {
-        implementation "com.google.android.exoplayer:exoplayer-dash:${exoPlayerVersion}"
+    if(dash) {
+        compile 'com.google.android.exoplayer:exoplayer-dash:r2.4.3'
     } else {
-        compileOnly "com.google.android.exoplayer:exoplayer-dash:${exoPlayerVersion}"
+        provided 'com.google.android.exoplayer:exoplayer-dash:r2.4.3'
     }
 
     // ExoPlayer HLS
-    if (hls) {
-        implementation "com.google.android.exoplayer:exoplayer-hls:${exoPlayerVersion}"
+    if(hls) {
+        compile 'com.google.android.exoplayer:exoplayer-hls:r2.4.3'
     } else {
-        compileOnly "com.google.android.exoplayer:exoplayer-hls:${exoPlayerVersion}"
+        provided 'com.google.android.exoplayer:exoplayer-hls:r2.4.3'
     }
 
     // ExoPlayer SmoothStreaming
-    if (smoothstreaming) {
-        implementation "com.google.android.exoplayer:exoplayer-smoothstreaming:${exoPlayerVersion}"
+    if(smoothstreaming) {
+        compile 'com.google.android.exoplayer:exoplayer-smoothstreaming:r2.4.3'
     } else {
-        compileOnly "com.google.android.exoplayer:exoplayer-smoothstreaming:${exoPlayerVersion}"
+        provided 'com.google.android.exoplayer:exoplayer-smoothstreaming:r2.4.3'
     }
 
-    // Make sure we're using androidx
-    implementation "androidx.core:core:1.3.0-rc01"
-    implementation "androidx.media:media:1.1.0"
-    implementation "androidx.localbroadcastmanager:localbroadcastmanager:1.1.0-alpha01"
-    implementation "com.github.bumptech.glide:glide:4.7.1"
+    // Caching (for the default Android player)
+    if(cache && !exoplayer) {
+        compile 'com.danikula:videocache:2.7.0'
+    } else {
+        provided 'com.danikula:videocache:2.7.0'
+    }
+
+    // Google Cast (Update this when RN updates the support library to 25+)
+    compile 'com.google.android.gms:play-services-cast-framework:9.4.0'
+
+    // Make sure we're using at least the support library 23.2.0, not 23.0.1
+    compile 'com.android.support:appcompat-v7:23.2.0'
 }
